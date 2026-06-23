@@ -28,14 +28,16 @@ class AnswerGenerator:
             self._initialize_llm()
     
     def _initialize_llm(self):
-        """Initialize LLM client (Week 4+)."""
+        """Initialize LLM client (Week 5 - updated for newer OpenAI API)."""
         try:
-            import openai
-            openai.api_key = self.api_key
-            self.llm_client = openai
+            from openai import OpenAI
+            self.llm_client = OpenAI(api_key=self.api_key)
             print(f" Initialized LLM: {self.llm_model}")
         except ImportError:
             print("Note: openai not installed. LLM functionality disabled.")
+            self.llm_client = None
+        except Exception as e:
+            print(f"Note: Failed to initialize LLM: {e}")
             self.llm_client = None
     
     def build_rag_prompt(
@@ -132,10 +134,10 @@ Answer:"""
             }
         
         try:
-            # Call LLM
+            # Call LLM (Week 5 - updated for newer OpenAI API)
             prompt = self.build_rag_prompt(question, retrieved_chunks)
             
-            response = self.llm_client.ChatCompletion.create(
+            response = self.llm_client.chat.completions.create(
                 model=self.llm_model,
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that answers questions using only the provided context."},
@@ -145,7 +147,7 @@ Answer:"""
                 max_tokens=max_tokens
             )
             
-            answer = response["choices"][0]["message"]["content"].strip()
+            answer = response.choices[0].message.content.strip()
             
             # Estimate confidence based on factors
             confidence = self._estimate_confidence(
@@ -159,7 +161,7 @@ Answer:"""
                 "confidence": confidence,
                 "status": "answered",
                 "model": self.llm_model,
-                "tokens_used": response["usage"]["total_tokens"]
+                "tokens_used": response.usage.total_tokens
             }
             
         except Exception as e:
@@ -218,7 +220,7 @@ Answer:"""
         status: str = "answered"
     ) -> Dict:
         """
-        Format a complete RAG response.
+        Format a complete RAG response (Week 5 fix).
         
         Args:
             question: User question
@@ -229,15 +231,21 @@ Answer:"""
         Returns:
             Formatted response dict matching RAG response contract
         """
-        # Extract unique citations
+        # Extract unique citations (Week 5 fix)
         citations = []
         seen_sources = set()
         
         for chunk in retrieved_chunks:
-            chunk_id = chunk.get("chunk_id")
-            file_name = chunk.get("metadata", {}).get("source", chunk.get("file_name"))
-            page_number = chunk.get("page_number")
+            # Fix chunk_id fallback (Week 5)
+            chunk_id = chunk.get("chunk_id", chunk.get("id", ""))
+            file_name = chunk.get("metadata", {}).get("source", chunk.get("file_name", "Unknown"))
+            # Fix page_number fallback (Week 5)
+            page_number = (
+                chunk.get("page_number")
+                or chunk.get("metadata", {}).get("page_number")
+            )
             
+            # Make citations unique by file_name, page_number, chunk_id (Week 5)
             key = (file_name, page_number, chunk_id)
             if key not in seen_sources:
                 citations.append({

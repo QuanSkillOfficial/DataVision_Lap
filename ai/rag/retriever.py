@@ -107,7 +107,9 @@ class Retriever:
     
     def get_source_citations(self, results: List[Dict]) -> List[Dict]:
         """
-        Extract source citations from retrieved results.
+        Extract source citations from retrieved results (Week 5 fix).
+        
+        Citations are made unique by: file_name, page_number, chunk_id
         
         Args:
             results: List of retrieved chunks
@@ -119,14 +121,25 @@ class Retriever:
         seen_sources = set()
         
         for result in results:
-            source = result.get("metadata", {}).get("source", "Unknown")
+            # Fix chunk_id fallback (Week 5)
+            chunk_id = result.get("chunk_id", result.get("id", ""))
+            file_name = result.get("metadata", {}).get("source", result.get("file_name", "Unknown"))
+            # Fix page_number fallback (Week 5)
+            page_number = (
+                result.get("page_number")
+                or result.get("metadata", {}).get("page_number")
+            )
+            similarity = result.get("score", 0)
             
-            if source not in seen_sources:
-                seen_sources.add(source)
+            # Make citations unique by file_name, page_number, chunk_id (Week 5)
+            key = (file_name, page_number, chunk_id)
+            if key not in seen_sources:
+                seen_sources.add(key)
                 citations.append({
-                    "source": source,
-                    "chunk_id": result.get("id", ""),
-                    "similarity": result.get("score", 0)
+                    "file_name": file_name,
+                    "page_number": page_number,
+                    "chunk_id": chunk_id,
+                    "similarity": similarity
                 })
         
         return citations

@@ -37,7 +37,7 @@ class VectorStore:
             self.use_pgvector = False
     
     def _create_table(self):
-        """Create document_chunks table with pgvector (Week 3)."""
+        """Create document_chunks table with pgvector aligned to Phat's schema_v3 (Week 5)."""
         if not self.connection:
             return
         
@@ -47,19 +47,21 @@ class VectorStore:
             # Enable pgvector extension
             cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
             
-            # Create table with proper schema
+            # Create table aligned with Phat's schema_v3
+            # Note: This assumes documents table exists with id (INTEGER PK)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS document_chunks (
                     id SERIAL PRIMARY KEY,
                     chunk_id VARCHAR(255) UNIQUE NOT NULL,
-                    document_id VARCHAR(255) NOT NULL,
+                    document_id INTEGER NOT NULL,
                     chunk_text TEXT NOT NULL,
                     embedding vector(384),
                     page_number INTEGER,
-                    metadata JSONB,
+                    chunk_metadata JSONB,
                     start_char INTEGER,
                     end_char INTEGER,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_document FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
                 );
                 
                 CREATE INDEX IF NOT EXISTS idx_chunk_id ON document_chunks (chunk_id);
@@ -69,7 +71,7 @@ class VectorStore:
             """)
             
             self.connection.commit()
-            print(" Created document_chunks table with pgvector")
+            print(" Created document_chunks table aligned with Phat schema_v3")
         except Exception as e:
             print(f"Error creating table: {e}")
             self.connection.rollback()
@@ -95,7 +97,7 @@ class VectorStore:
             return self._add_chunks_in_memory(chunks, embeddings)
     
     def _add_chunks_pgvector(self, chunks: List[Dict], embeddings: np.ndarray) -> List[str]:
-        """Add chunks to pgvector (Week 3)."""
+        """Add chunks to pgvector aligned with Phat's schema_v3 (Week 5)."""
         if not self.connection:
             raise RuntimeError("Not connected to pgvector")
         
@@ -106,9 +108,12 @@ class VectorStore:
             
             for chunk, embedding in zip(chunks, embeddings):
                 chunk_id = chunk["chunk_id"]
-                document_id = chunk["document_id"]
+                # document_id should be INTEGER FK to documents.id (Phat's schema)
+                # If chunk has document_external_id, we need to look up the INTEGER FK
+                document_id = chunk.get("document_id_fk", chunk.get("document_id"))
                 chunk_text = chunk["chunk_text"]
-                metadata = json.dumps(chunk.get("metadata", {}))
+                # Use chunk_metadata instead of metadata (Phat's schema)
+                chunk_metadata = json.dumps(chunk.get("metadata", {}))
                 page_number = chunk.get("metadata", {}).get("page_number")
                 start_char = chunk.get("start_char")
                 end_char = chunk.get("end_char")
@@ -118,12 +123,12 @@ class VectorStore:
                 
                 cursor.execute("""
                     INSERT INTO document_chunks 
-                    (chunk_id, document_id, chunk_text, embedding, page_number, metadata, start_char, end_char)
+                    (chunk_id, document_id, chunk_text, embedding, page_number, chunk_metadata, start_char, end_char)
                     VALUES (%s, %s, %s, %s::vector, %s, %s::jsonb, %s, %s)
                     ON CONFLICT (chunk_id) DO UPDATE SET
                         embedding = EXCLUDED.embedding,
-                        metadata = EXCLUDED.metadata
-                """, (chunk_id, document_id, chunk_text, embedding_str, page_number, metadata, start_char, end_char))
+                        chunk_metadata = EXCLUDED.chunk_metadata
+                """, (chunk_id, document_id, chunk_text, embedding_str, page_number, chunk_metadata, start_char, end_char))
                 
                 chunk_ids.append(chunk_id)
             
@@ -233,7 +238,7 @@ class VectorStore:
                     document_id,
                     chunk_text,
                     page_number,
-                    metadata,
+                    chunk_metadata,
                     1 - (embedding <=> %s::vector) AS similarity_score
                 FROM document_chunks
                 {where_clause}
