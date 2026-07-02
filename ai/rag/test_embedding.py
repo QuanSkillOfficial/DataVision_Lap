@@ -7,8 +7,12 @@ Verifies installation and basic functionality.
 import sys
 sys.path.append('.')
 
-from embedder import Embedder
 import numpy as np
+
+try:
+    from .embedder import Embedder
+except ImportError:  # pragma: no cover - direct script execution fallback
+    from embedder import Embedder
 
 
 def test_embedding_model():

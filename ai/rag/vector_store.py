@@ -6,8 +6,29 @@ Embeddings are stored alongside text and metadata for retrieval.
 Preserves original chunk IDs and document structure.
 """
 
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 import numpy as np
+
+
+def resolve_document_db_id(conn, document_external_id: str) -> int:
+    """Resolve a Lap document_external_id to the integer documents.id used by Phat."""
+    if conn is None:
+        raise ValueError("A database connection is required to resolve document_external_id")
+
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT id FROM documents WHERE document_external_id = %s",
+            (document_external_id,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            raise ValueError(
+                f"No document found for document_external_id={document_external_id!r}"
+            )
+        return int(row[0])
+    finally:
+        cursor.close()
 
 
 class VectorStore:
@@ -23,12 +44,12 @@ class VectorStore:
             self._connect_pgvector()
     
     def _connect_pgvector(self):
-        """Connect to PostgreSQL with pgvector (Week 3)."""
+        """Connect to PostgreSQL with pgvector and validate the existing schema."""
         try:
             import psycopg2
             self.connection = psycopg2.connect(self.connection_string)
             print("Connected to PostgreSQL with pgvector")
-            self._create_table()
+            self._validate_existing_schema()
         except ImportError:
             print("Need psycopg2 - run: pip install psycopg2-binary")
             self.use_pgvector = False
@@ -36,45 +57,118 @@ class VectorStore:
             print(f"PostgreSQL connection failed: {e}")
             self.use_pgvector = False
     
-    def _create_table(self):
-        """Create document_chunks table with pgvector aligned to Phat's schema_v3 (Week 5)."""
+    def _metadata_matches_filter(self, chunk_data: Dict, filter_metadata: Optional[Dict]) -> bool:
+        """Check whether chunk data satisfies a metadata filter structure."""
+        if not filter_metadata:
+            return True
+
+        metadata = chunk_data.get("metadata", {}) or {}
+        for key, expected in filter_metadata.items():
+            if key in {"document_id", "page_number"}:
+                continue
+
+            value = chunk_data.get(key, metadata.get(key))
+            if isinstance(expected, dict):
+                operator = expected.get("operator", "eq")
+                threshold = expected.get("value")
+                if operator in {"gt", "gte", "lt", "lte"}:
+                    try:
+                        numeric_value = float(value)
+                        numeric_threshold = float(threshold)
+                    except (TypeError, ValueError):
+                        return False
+
+                    if operator == "gt":
+                        match = numeric_value > numeric_threshold
+                    elif operator == "gte":
+                        match = numeric_value >= numeric_threshold
+                    elif operator == "lt":
+                        match = numeric_value < numeric_threshold
+                    else:
+                        match = numeric_value <= numeric_threshold
+                elif operator == "ne":
+                    match = value != threshold
+                else:
+                    match = value == threshold
+            else:
+                match = value == expected
+
+            if not match:
+                return False
+
+        return True
+
+    def _build_pgvector_filter_clause(self, filter_metadata: Optional[Dict]) -> Tuple[str, List[Any]]:
+        """Translate metadata filters into a pgvector WHERE clause."""
+        if not filter_metadata:
+            return "", []
+
+        terms: List[str] = []
+        params: List[Any] = []
+
+        for key, expected in filter_metadata.items():
+            if key == "document_id":
+                terms.append("document_id = %s")
+                params.append(expected)
+            elif key == "page_number":
+                terms.append("page_number = %s")
+                params.append(expected)
+            elif isinstance(expected, dict):
+                operator = expected.get("operator", "eq")
+                threshold = expected.get("value")
+                if operator in {"gt", "gte", "lt", "lte"}:
+                    comparison = {
+                        "gt": ">",
+                        "gte": ">=",
+                        "lt": "<",
+                        "lte": "<=",
+                    }[operator]
+                    terms.append(f"COALESCE((chunk_metadata->>%s)::float, 0.0) {comparison} %s")
+                    params.extend([key, threshold])
+                elif operator == "ne":
+                    terms.append("chunk_metadata->>%s <> %s")
+                    params.extend([key, str(threshold)])
+                else:
+                    terms.append("chunk_metadata->>%s = %s")
+                    params.extend([key, str(threshold)])
+            else:
+                terms.append("chunk_metadata->>%s = %s")
+                params.extend([key, str(expected)])
+
+        return " AND ".join(terms), params
+
+    def _validate_existing_schema(self):
+        """Validate that the production schema already exists and is usable."""
         if not self.connection:
             return
-        
+
         try:
             cursor = self.connection.cursor()
-            
-            # Enable pgvector extension
             cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            
-            # Create table aligned with Phat's schema_v3
-            # Note: This assumes documents table exists with id (INTEGER PK)
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS document_chunks (
-                    id SERIAL PRIMARY KEY,
-                    chunk_id VARCHAR(255) UNIQUE NOT NULL,
-                    document_id INTEGER NOT NULL,
-                    chunk_text TEXT NOT NULL,
-                    embedding vector(384),
-                    page_number INTEGER,
-                    chunk_metadata JSONB,
-                    start_char INTEGER,
-                    end_char INTEGER,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    CONSTRAINT fk_document FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
-                );
-                
-                CREATE INDEX IF NOT EXISTS idx_chunk_id ON document_chunks (chunk_id);
-                CREATE INDEX IF NOT EXISTS idx_document_id ON document_chunks (document_id);
-                CREATE INDEX IF NOT EXISTS idx_page_number ON document_chunks (page_number);
-                CREATE INDEX IF NOT EXISTS idx_embedding ON document_chunks USING ivfflat (embedding vector_cosine_ops);
+                SELECT to_regclass('public.document_chunks')
             """)
-            
+            table_exists = cursor.fetchone()[0]
+            if not table_exists:
+                raise RuntimeError("Expected existing public.document_chunks table; schema v4 table was not found")
+
+            cursor.execute("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'document_chunks'
+            """)
+            columns = {row[0] for row in cursor.fetchall()}
+            required_columns = {"chunk_id", "document_id", "chunk_text", "embedding", "page_number", "chunk_metadata"}
+            missing_columns = required_columns - columns
+            if missing_columns:
+                raise RuntimeError(f"document_chunks is missing required columns: {sorted(missing_columns)}")
+
             self.connection.commit()
-            print(" Created document_chunks table aligned with Phat schema_v3")
+            print("Validated existing document_chunks schema for pgvector inserts")
         except Exception as e:
-            print(f"Error creating table: {e}")
+            print(f"Schema validation failed: {e}")
             self.connection.rollback()
+            self.use_pgvector = False
     
     def add_chunks(
         self,
@@ -108,9 +202,11 @@ class VectorStore:
             
             for chunk, embedding in zip(chunks, embeddings):
                 chunk_id = chunk["chunk_id"]
-                # document_id should be INTEGER FK to documents.id (Phat's schema)
-                # If chunk has document_external_id, we need to look up the INTEGER FK
-                document_id = chunk.get("document_id_fk", chunk.get("document_id"))
+                document_id = chunk.get("document_id_fk")
+                if document_id is None and chunk.get("document_external_id"):
+                    document_id = resolve_document_db_id(self.connection, chunk["document_external_id"])
+                elif document_id is None:
+                    document_id = chunk.get("document_id")
                 chunk_text = chunk["chunk_text"]
                 # Use chunk_metadata instead of metadata (Phat's schema)
                 chunk_metadata = json.dumps(chunk.get("metadata", {}))
@@ -225,12 +321,10 @@ class VectorStore:
             params = [embedding_str]
             
             if filter_metadata:
-                if "document_id" in filter_metadata:
-                    where_clause += " AND document_id = %s"
-                    params.append(filter_metadata["document_id"])
-                if "page_number" in filter_metadata:
-                    where_clause += " AND page_number = %s"
-                    params.append(filter_metadata["page_number"])
+                filter_clause, filter_params = self._build_pgvector_filter_clause(filter_metadata)
+                if filter_clause:
+                    where_clause += f" AND {filter_clause}"
+                    params.extend(filter_params)
             
             query = f"""
                 SELECT 
@@ -259,7 +353,8 @@ class VectorStore:
                     "chunk_text": row[2],
                     "page_number": row[3],
                     "metadata": json.loads(row[4]) if isinstance(row[4], str) else row[4],
-                    "score": float(row[5])
+                    "score": float(row[5]),
+                    "similarity_score": float(row[5])
                 })
             
             return results
@@ -283,29 +378,30 @@ class VectorStore:
         for chunk_id, chunk_data in self.in_memory_store.items():
             # Apply metadata filtering
             if filter_metadata:
-                match = True
                 if "document_id" in filter_metadata:
                     if chunk_data.get("document_id") != filter_metadata["document_id"]:
-                        match = False
+                        continue
                 if "page_number" in filter_metadata:
                     page = chunk_data.get("metadata", {}).get("page_number")
                     if page != filter_metadata["page_number"]:
-                        match = False
-                
-                if not match:
+                        continue
+                if not self._metadata_matches_filter(chunk_data, filter_metadata):
                     continue
             
             embedding = chunk_data["embedding"].reshape(1, -1)
             similarity = cosine_similarity(query_embedding, embedding)[0][0]
             
+            page_number = chunk_data.get("metadata", {}).get("page_number")
             results.append({
                 "chunk_id": chunk_data["chunk_id"],
                 "document_id": chunk_data["document_id"],
                 "id": chunk_id,
                 "text": chunk_data["chunk_text"],
                 "chunk_text": chunk_data["chunk_text"],
+                "page_number": page_number,
+                "metadata": chunk_data.get("metadata", {}),
                 "score": float(similarity),
-                "metadata": chunk_data.get("metadata", {})
+                "similarity_score": float(similarity)
             })
         
         results.sort(key=lambda x: x["score"], reverse=True)

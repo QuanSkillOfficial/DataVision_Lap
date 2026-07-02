@@ -31,7 +31,8 @@ class RAGService:
         self,
         question: str,
         document_id: Optional[int] = None,
-        top_k: int = 5
+        top_k: int = 5,
+        metadata_filter: Optional[Dict] = None,
     ) -> Dict:
         """
         Retrieve relevant context for a question (Week 5).
@@ -58,7 +59,7 @@ class RAGService:
         start_time = time.time()
         
         # Build metadata filter
-        metadata_filter = {}
+        metadata_filter = dict(metadata_filter or {})
         if document_id is not None:
             metadata_filter["document_id"] = document_id
         
@@ -107,7 +108,8 @@ class RAGService:
         self,
         question: str,
         document_id: Optional[int] = None,
-        top_k: int = 5
+        top_k: int = 5,
+        metadata_filter: Optional[Dict] = None,
     ) -> Dict:
         """
         Retrieve context and generate answer (Week 5 - secondary).
@@ -124,7 +126,7 @@ class RAGService:
             Dictionary with answer if LLM available, otherwise retrieval_only
         """
         # First, retrieve context
-        response = self.retrieve_context(question, document_id, top_k)
+        response = self.retrieve_context(question, document_id, top_k, metadata_filter=metadata_filter)
         
         # If no answer generator, return retrieval-only response
         if not self.answer_generator:
@@ -202,6 +204,46 @@ class RAGService:
         }
         
         return payload
+
+
+def insert_rag_query_log(conn, log_payload: Dict) -> Dict:
+    """Insert a RAG query log payload into Phat's rag_query_logs table if possible."""
+    if conn is None:
+        raise ValueError("A database connection is required to insert a query log")
+
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO rag_query_logs (
+                document_id,
+                user_query,
+                retrieved_chunk_ids,
+                retrieval_scores,
+                generated_response,
+                answer_confidence,
+                latency_ms,
+                model_name
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                log_payload.get("document_id"),
+                log_payload.get("user_query"),
+                log_payload.get("retrieved_chunk_ids"),
+                log_payload.get("retrieval_scores"),
+                log_payload.get("generated_response"),
+                log_payload.get("answer_confidence"),
+                log_payload.get("latency_ms"),
+                log_payload.get("model_name"),
+            ),
+        )
+        conn.commit()
+        return log_payload
+    except Exception as exc:
+        conn.rollback()
+        raise RuntimeError(f"Failed to insert rag_query_log: {exc}") from exc
+    finally:
+        cursor.close()
 
 
 def create_rag_service(

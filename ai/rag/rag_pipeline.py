@@ -6,10 +6,17 @@ This is the main entry point for the RAG system.
 """
 
 from typing import List, Dict, Optional
-from chunker import Chunker
-from embedder import Embedder
-from vector_store import VectorStore
-from retriever import Retriever
+
+try:
+    from .chunker import Chunker
+    from .embedder import Embedder
+    from .vector_store import VectorStore
+    from .retriever import Retriever
+except ImportError:  # pragma: no cover - direct script execution fallback
+    from chunker import Chunker
+    from embedder import Embedder
+    from vector_store import VectorStore
+    from retriever import Retriever
 
 
 class RAGPipeline:

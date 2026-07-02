@@ -62,8 +62,8 @@ class Retriever:
             filter_metadata=filters if filters else None
         )
         
-        # Filter by minimum score
-        results = [r for r in results if r.get("score", 0) >= min_score]
+        # Filter by minimum score using either score or similarity_score
+        results = [r for r in results if (r.get("similarity_score", r.get("score", 0)) >= min_score)]
         
         return results
     
@@ -96,7 +96,7 @@ class Retriever:
         context_parts = []
         for i, result in enumerate(results, 1):
             source = result.get("metadata", {}).get("source", "Unknown")
-            score = result.get("score", 0)
+            score = result.get("similarity_score", result.get("score", 0))
             text = result.get("text", "")
             
             context_parts.append(
@@ -129,7 +129,7 @@ class Retriever:
                 result.get("page_number")
                 or result.get("metadata", {}).get("page_number")
             )
-            similarity = result.get("score", 0)
+            similarity = result.get("similarity_score", result.get("score", 0))
             
             # Make citations unique by file_name, page_number, chunk_id (Week 5)
             key = (file_name, page_number, chunk_id)
