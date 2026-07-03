@@ -52,6 +52,9 @@ class DocumentLoader:
                 
                 try:
                     page = json.loads(line)
+                    page_text = page.get("text") or page.get("page_text") or page.get("page_content") or ""
+                    page["text"] = page_text
+                    page.setdefault("page_text", page_text)
                     pages.append(page)
                 except json.JSONDecodeError as e:
                     print(f"Warning: Could not parse line {line_num}: {e}")
@@ -84,6 +87,9 @@ class DocumentLoader:
                 
                 try:
                     page = json.loads(line)
+                    page_text = page.get("text") or page.get("page_text") or page.get("page_content") or ""
+                    page["text"] = page_text
+                    page.setdefault("page_text", page_text)
                     yield page
                 except json.JSONDecodeError as e:
                     print(f"Warning: Could not parse line {line_num}: {e}")

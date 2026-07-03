@@ -123,11 +123,17 @@ class Retriever:
         for result in results:
             # Fix chunk_id fallback (Week 5)
             chunk_id = result.get("chunk_id", result.get("id", ""))
-            file_name = result.get("metadata", {}).get("source", result.get("file_name", "Unknown"))
+            metadata = result.get("metadata", {}) or {}
+            file_name = (
+                metadata.get("file_name")
+                or metadata.get("source")
+                or result.get("file_name")
+                or "Unknown"
+            )
             # Fix page_number fallback (Week 5)
             page_number = (
                 result.get("page_number")
-                or result.get("metadata", {}).get("page_number")
+                or metadata.get("page_number")
             )
             similarity = result.get("similarity_score", result.get("score", 0))
             

@@ -21,7 +21,19 @@ class Embedder:
         """
         self.model_name = model_name
         self.model = self._load_model()
-        self.embedding_dimension = self.model.get_sentence_embedding_dimension()
+        self.embedding_dimension = self._get_embedding_dimension()
+
+    def _get_embedding_dimension(self) -> int:
+        """Support both older and newer sentence-transformers APIs."""
+        getter = getattr(self.model, "get_embedding_dimension", None)
+        if callable(getter):
+            return int(getter())
+
+        legacy_getter = getattr(self.model, "get_sentence_embedding_dimension", None)
+        if callable(legacy_getter):
+            return int(legacy_getter())
+
+        return 384
     
     def _load_model(self):
         """Load the sentence-transformers embedding model."""

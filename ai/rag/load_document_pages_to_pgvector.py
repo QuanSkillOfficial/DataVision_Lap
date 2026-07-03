@@ -6,9 +6,14 @@ import time
 from pathlib import Path
 from typing import List, Dict, Optional
 
-from .document_loader import DocumentLoader
-from .embedder import Embedder
-from .vector_store import VectorStore, resolve_document_db_id
+try:
+    from .document_loader import DocumentLoader
+    from .embedder import Embedder
+    from .vector_store import VectorStore, resolve_document_db_id
+except ImportError:  # pragma: no cover - direct script execution fallback
+    from document_loader import DocumentLoader
+    from embedder import Embedder
+    from vector_store import VectorStore, resolve_document_db_id
 
 
 def load_and_ingest(

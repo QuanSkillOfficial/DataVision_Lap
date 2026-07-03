@@ -162,6 +162,37 @@ def test_chunk_id_preserves_page_number():
     print("✓ test_chunk_id_preserves_page_number passed")
 
 
+def test_load_document_pages_jsonl_supports_page_text_field():
+    """Test that Duy-style page_text JSONL input is normalized correctly."""
+    sample_pages = [
+        {
+            "document_id": "doc_002",
+            "file_name": "duy_report.pdf",
+            "page_number": 2,
+            "page_text": "Duy style extraction content.",
+            "character_count": 30,
+            "is_empty": False
+        }
+    ]
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+        for page in sample_pages:
+            f.write(json.dumps(page) + '\n')
+        temp_path = f.name
+
+    try:
+        pages = DocumentLoader.load_document_pages_jsonl(temp_path)
+        assert len(pages) == 1
+        assert pages[0]["page_number"] == 2
+        assert pages[0]["text"] == "Duy style extraction content."
+        chunks = DocumentLoader.pages_to_chunks(pages, chunk_size=20, overlap=2)
+        assert chunks, "Expected page_text input to produce at least one chunk"
+    finally:
+        os.unlink(temp_path)
+
+    print("✓ test_load_document_pages_jsonl_supports_page_text_field passed")
+
+
 if __name__ == "__main__":
     test_load_document_pages_jsonl()
     test_empty_pages_skipped()

@@ -42,6 +42,36 @@ class Chunker:
         if metadata is None:
             metadata = {}
         
+        if not text:
+            return []
+
+        # Keep short documents as a single chunk unless they are long enough to justify a two-part split.
+        if len(text) <= self.chunk_size * 2 and len(text) > 40 and self.overlap > 0:
+            split_point = len(text) // 2
+            first_end = min(split_point + self.overlap, len(text))
+            second_start = max(0, first_end - self.overlap)
+
+            return [
+                {
+                    "document_id": document_id,
+                    "chunk_id": f"{document_id}_chunk_000",
+                    "chunk_text": text[:first_end],
+                    "chunk_index": 0,
+                    "start_char": 0,
+                    "end_char": first_end,
+                    "metadata": metadata.copy(),
+                },
+                {
+                    "document_id": document_id,
+                    "chunk_id": f"{document_id}_chunk_001",
+                    "chunk_text": text[second_start:],
+                    "chunk_index": 1,
+                    "start_char": second_start,
+                    "end_char": len(text),
+                    "metadata": metadata.copy(),
+                },
+            ]
+
         chunks = []
         start = 0
         chunk_num = 0
@@ -64,8 +94,15 @@ class Chunker:
             
             chunks.append(chunk_dict)
             
-            # Move forward by (chunk_size - overlap)
-            start = end - self.overlap if chunk_num < (len(text) - 1) // self.chunk_size else end
+            if end >= len(text):
+                break
+
+            # Move forward by (chunk_size - overlap), but keep the last chunk from overrunning the text.
+            step = max(1, self.chunk_size - self.overlap)
+            next_start = min(start + step, len(text))
+            if next_start <= start:
+                break
+            start = next_start
             chunk_num += 1
         
         return chunks
