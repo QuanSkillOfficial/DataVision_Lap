@@ -6,6 +6,7 @@ Embeddings are stored alongside text and metadata for retrieval.
 Preserves original chunk IDs and document structure.
 """
 
+import os
 from typing import List, Dict, Optional, Tuple, Any
 import numpy as np
 
@@ -53,7 +54,16 @@ class VectorStore:
         """Connect to PostgreSQL with pgvector and validate the existing schema."""
         try:
             import psycopg2
-            self.connection = psycopg2.connect(self.connection_string)
+
+            connection_string = (
+                self.connection_string
+                or os.getenv("DATABASE_URL")
+                or os.getenv("POSTGRES_URL")
+            )
+            if not connection_string:
+                raise ValueError("No database connection string provided. Set connection_string or DATABASE_URL.")
+
+            self.connection = psycopg2.connect(connection_string)
             print("Connected to PostgreSQL with pgvector")
             self._validate_existing_schema()
         except ImportError:
@@ -361,11 +371,11 @@ class VectorStore:
                     params.extend(filter_params)
             
             query = f"""
-                SELECT 
+                SELECT
                     chunk_id,
                     document_id,
-                    chunk_text,
                     page_number,
+                    chunk_text,
                     chunk_metadata,
                     1 - (embedding <=> %s::vector) AS similarity_score
                 FROM document_chunks
