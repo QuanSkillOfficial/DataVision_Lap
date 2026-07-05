@@ -141,11 +141,15 @@ class Retriever:
             key = (file_name, page_number, chunk_id)
             if key not in seen_sources:
                 seen_sources.add(key)
+                document_external_id = metadata.get("document_external_id") or result.get("document_external_id")
+                document_db_id = result.get("document_id")
                 citations.append({
                     "file_name": file_name,
                     "page_number": page_number,
                     "chunk_id": chunk_id,
-                    "similarity": similarity
+                    "similarity": similarity,
+                    "document_external_id": document_external_id,
+                    "document_db_id": document_db_id
                 })
         
         return citations

@@ -395,9 +395,9 @@ class VectorStore:
                 results.append({
                     "chunk_id": row[0],
                     "document_id": row[1],
-                    "text": row[2],
-                    "chunk_text": row[2],
-                    "page_number": row[3],
+                    "text": row[3],
+                    "chunk_text": row[3],
+                    "page_number": row[2],
                     "metadata": json.loads(row[4]) if isinstance(row[4], str) else row[4],
                     "score": normalized_similarity,
                     "similarity_score": normalized_similarity
