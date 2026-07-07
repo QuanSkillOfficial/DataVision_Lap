@@ -25,8 +25,8 @@ def resolve_document_db_id(conn, document_external_id: str) -> int:
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "SELECT id FROM documents WHERE file_name = %s OR id::text = %s LIMIT 1",
-            (document_external_id, document_external_id),
+            "SELECT id FROM documents WHERE document_external_id = %s LIMIT 1",
+            (document_external_id,),
         )
         row = cursor.fetchone()
         if row is None:
