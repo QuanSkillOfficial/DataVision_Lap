@@ -9,6 +9,7 @@ Preserves original chunk IDs and document structure.
 import os
 from typing import List, Dict, Optional, Tuple, Any
 import numpy as np
+from torch import chunk
 
 
 def resolve_document_db_id(conn, document_external_id: str) -> int:
@@ -25,8 +26,8 @@ def resolve_document_db_id(conn, document_external_id: str) -> int:
     cursor = conn.cursor()
     try:
         cursor.execute(
-            "SELECT id FROM documents WHERE document_external_id = %s LIMIT 1",
-            (document_external_id,),
+            "SELECT id FROM documents WHERE document_external_id = %s OR id::text = %s LIMIT 1",
+            (document_external_id, document_external_id),
         )
         row = cursor.fetchone()
         if row is None:
@@ -250,6 +251,9 @@ class VectorStore:
                 if "page_number" in available_columns:
                     insert_columns.append("page_number")
                     insert_values.append(page_number)
+                if "chunk_index" in available_columns:               
+                    insert_columns.append("chunk_index")                   
+                    insert_values.append(chunk.get("chunk_index"))            
                 if "chunk_metadata" in available_columns:
                     insert_columns.append("chunk_metadata")
                     insert_values.append(chunk_metadata)
@@ -391,7 +395,7 @@ class VectorStore:
             for row in cursor.fetchall():
                 import json
                 similarity = float(row[5])
-                normalized_similarity = max(0.0, min(1.0, (similarity + 1.0) / 4.0))
+                normalized_similarity = max(0.0, min(1.0, (similarity + 1.0) / 2.0))
                 results.append({
                     "chunk_id": row[0],
                     "document_id": row[1],
@@ -436,7 +440,7 @@ class VectorStore:
             
             embedding = chunk_data["embedding"].reshape(1, -1)
             similarity = cosine_similarity(query_embedding, embedding)[0][0]
-            normalized_similarity = max(0.0, min(1.0, (float(similarity) + 1.0) / 4.0))
+            normalized_similarity = max(0.0, min(1.0, (float(similarity) + 1.0) / 2.0))
             
             page_number = chunk_data.get("metadata", {}).get("page_number")
             results.append({
@@ -540,4 +544,3 @@ if __name__ == "__main__":
         filter_metadata={"document_id": "doc_001"}
     )
     print(f" Found {len(filtered_results)} results for doc_001\n")
-
