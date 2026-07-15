@@ -11,7 +11,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from ai.rag.embedder import Embedder
+from ai.ai_tests.fakes import FakeEmbedder, FakeVectorStore
 from ai.rag.vector_store import VectorStore
 from ai.rag.retriever import Retriever
 from ai.rag.answer_generator import AnswerGenerator
@@ -19,8 +19,8 @@ from ai.rag.answer_generator import AnswerGenerator
 
 def test_citations_include_file_name():
     """Test that citations include file_name."""
-    embedder = Embedder()
-    vector_store = VectorStore(use_pgvector=False)
+    embedder = FakeEmbedder()
+    vector_store = FakeVectorStore()
     retriever = Retriever(embedder=embedder, vector_store=vector_store, top_k=5)
     
     chunks = [
@@ -46,8 +46,8 @@ def test_citations_include_file_name():
 
 def test_citations_include_page_number():
     """Test that citations include page_number."""
-    embedder = Embedder()
-    vector_store = VectorStore(use_pgvector=False)
+    embedder = FakeEmbedder()
+    vector_store = FakeVectorStore()
     retriever = Retriever(embedder=embedder, vector_store=vector_store, top_k=5)
     
     chunks = [
@@ -73,8 +73,8 @@ def test_citations_include_page_number():
 
 def test_citations_include_chunk_id():
     """Test that citations include chunk_id."""
-    embedder = Embedder()
-    vector_store = VectorStore(use_pgvector=False)
+    embedder = FakeEmbedder()
+    vector_store = FakeVectorStore()
     retriever = Retriever(embedder=embedder, vector_store=vector_store, top_k=5)
     
     chunks = [
@@ -100,8 +100,8 @@ def test_citations_include_chunk_id():
 
 def test_citations_unique_by_key():
     """Test that citations are unique by (file_name, page_number, chunk_id)."""
-    embedder = Embedder()
-    vector_store = VectorStore(use_pgvector=False)
+    embedder = FakeEmbedder()
+    vector_store = FakeVectorStore()
     retriever = Retriever(embedder=embedder, vector_store=vector_store, top_k=5)
     
     # Add chunks from same page (should be deduplicated)

@@ -55,5 +55,5 @@ def test_resolve_document_db_id_uses_document_external_id(monkeypatch):
     document_id = resolve_document_db_id(DummyConnection(), "doc_dataflow_technical_report")
 
     assert document_id == 123
-    assert executed["query"] == "SELECT id FROM documents WHERE document_external_id = %s LIMIT 1"
-    assert executed["params"] == ("doc_dataflow_technical_report",)
+    assert executed["query"] == "SELECT id FROM documents WHERE document_external_id = %s OR id::text = %s LIMIT 1"
+    assert executed["params"] == ("doc_dataflow_technical_report", "doc_dataflow_technical_report")

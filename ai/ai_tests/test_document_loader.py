@@ -193,9 +193,92 @@ def test_load_document_pages_jsonl_supports_page_text_field():
     print("✓ test_load_document_pages_jsonl_supports_page_text_field passed")
 
 
+def test_document_loader_total_characters():
+    """Test that total characters are calculated correctly."""
+    pages = [
+        {
+            "document_id": "doc_001",
+            "file_name": "sample.pdf",
+            "page_number": 1,
+            "text": "Hello",
+            "character_count": 5,
+            "is_empty": False
+        },
+        {
+            "document_id": "doc_001",
+            "file_name": "sample.pdf",
+            "page_number": 2,
+            "text": "World",
+            "character_count": 5,
+            "is_empty": False
+        }
+    ]
+    
+    stats = DocumentLoader.validate_pages(pages)
+    
+    assert stats["total_characters"] == 10
+    
+    print("✓ test_document_loader_total_characters passed")
+
+
+def test_document_loader_all_empty_pages():
+    """Test validation when all pages are empty."""
+    pages = [
+        {
+            "document_id": "doc_001",
+            "file_name": "sample.pdf",
+            "page_number": 1,
+            "text": "",
+            "character_count": 0,
+            "is_empty": True
+        },
+        {
+            "document_id": "doc_001",
+            "file_name": "sample.pdf",
+            "page_number": 2,
+            "text": "",
+            "character_count": 0,
+            "is_empty": True
+        }
+    ]
+    
+    stats = DocumentLoader.validate_pages(pages)
+    
+    assert stats["total_pages"] == 2
+    assert stats["empty_pages"] == 2
+    assert stats["non_empty_pages"] == 0
+    
+    print("✓ test_document_loader_all_empty_pages passed")
+
+
+def test_document_loader_chunk_count():
+    """Test that chunk count is reasonable for page content."""
+    pages = [
+        {
+            "document_id": "doc_001",
+            "file_name": "sample.pdf",
+            "page_number": 1,
+            "text": "A" * 200,  # 200 characters
+            "character_count": 200,
+            "is_empty": False
+        }
+    ]
+    
+    chunks = DocumentLoader.pages_to_chunks(pages, chunk_size=50, overlap=10)
+    
+    # With 200 chars, chunk_size=50, overlap=10, should get multiple chunks
+    assert len(chunks) > 1, "Should create multiple chunks from long text"
+    
+    print("✓ test_document_loader_chunk_count passed")
+
+
 if __name__ == "__main__":
     test_load_document_pages_jsonl()
     test_empty_pages_skipped()
     test_validate_pages()
     test_chunk_id_preserves_page_number()
+    test_load_document_pages_jsonl_supports_page_text_field()
+    test_document_loader_total_characters()
+    test_document_loader_all_empty_pages()
+    test_document_loader_chunk_count()
     print("\n✓ All document_loader tests passed!")
