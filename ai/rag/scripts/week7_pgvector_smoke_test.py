@@ -12,16 +12,14 @@ import time
 from pathlib import Path
 from typing import Optional
 
-try:
-    from ..embedder import Embedder
-    from ..vector_store import VectorStore, resolve_document_db_id
-    from ..retriever import Retriever
-    from ..rag_service import RAGService
-except ImportError:
-    from embedder import Embedder
-    from vector_store import VectorStore, resolve_document_db_id
-    from retriever import Retriever
-    from rag_service import RAGService
+# Add the project root to the path
+project_root = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(project_root))
+
+from ai.rag.embedder import Embedder
+from ai.rag.vector_store import VectorStore, resolve_document_db_id
+from ai.rag.retriever import Retriever
+from ai.rag.rag_service import RAGService
 
 
 def run_pgvector_smoke_test(

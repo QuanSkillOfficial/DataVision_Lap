@@ -10,18 +10,15 @@ import sys
 import json
 from pathlib import Path
 
-try:
-    from ..ai_tests.fakes import FakeEmbedder, FakeVectorStore, create_sample_chunks
-    from ..chunker import Chunker
-    from ..document_loader import DocumentLoader
-    from ..retriever import Retriever
-    from ..rag_service import RAGService
-except ImportError:
-    from ai.ai_tests.fakes import FakeEmbedder, FakeVectorStore, create_sample_chunks
-    from ai.rag.chunker import Chunker
-    from ai.rag.document_loader import DocumentLoader
-    from ai.rag.retriever import Retriever
-    from ai.rag.rag_service import RAGService
+# Add the project root to the path
+project_root = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(project_root))
+
+from ai.ai_tests.fakes import FakeEmbedder, FakeVectorStore, create_sample_chunks, create_sample_pages
+from ai.rag.chunker import Chunker
+from ai.rag.document_loader import DocumentLoader
+from ai.rag.retriever import Retriever
+from ai.rag.rag_service import RAGService
 
 
 def run_ci_smoke_test():
