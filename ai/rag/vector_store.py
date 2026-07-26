@@ -9,7 +9,6 @@ Preserves original chunk IDs and document structure.
 import os
 from typing import List, Dict, Optional, Tuple, Any
 import numpy as np
-from torch import chunk
 
 
 def resolve_document_db_id(conn, document_external_id: str) -> int:
@@ -420,11 +419,10 @@ class VectorStore:
         filter_metadata: Optional[Dict]
     ) -> List[Dict]:
         """Search in-memory store with cosine similarity."""
-        from sklearn.metrics.pairwise import cosine_similarity
-        
         results = []
-        query_embedding = query_embedding.reshape(1, -1)
-        
+        query_vector = np.asarray(query_embedding, dtype=float).reshape(-1)
+        query_norm = np.linalg.norm(query_vector)
+
         for chunk_id, chunk_data in self.in_memory_store.items():
             # Apply metadata filtering
             if filter_metadata:
@@ -438,8 +436,9 @@ class VectorStore:
                 if not self._metadata_matches_filter(chunk_data, filter_metadata):
                     continue
             
-            embedding = chunk_data["embedding"].reshape(1, -1)
-            similarity = cosine_similarity(query_embedding, embedding)[0][0]
+            embedding = np.asarray(chunk_data["embedding"], dtype=float).reshape(-1)
+            denominator = query_norm * np.linalg.norm(embedding)
+            similarity = float(np.dot(query_vector, embedding) / denominator) if denominator else 0.0
             normalized_similarity = max(0.0, min(1.0, (float(similarity) + 1.0) / 2.0))
             
             page_number = chunk_data.get("metadata", {}).get("page_number")

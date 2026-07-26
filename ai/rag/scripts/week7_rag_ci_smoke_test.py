@@ -46,7 +46,7 @@ def run_ci_smoke_test():
         assert all("chunk_id" in c for c in chunks), "Chunks should have chunk_id"
         assert all("document_id" in c for c in chunks), "Chunks should have document_id"
         results["tests"].append({"name": "chunker", "status": "pass"})
-        print("✓ Chunker test passed\n")
+        print("[PASS] Chunker test passed\n")
         
         # Test 2: Document Loader
         print("Test 2: Document Loader")
@@ -54,7 +54,7 @@ def run_ci_smoke_test():
         chunks = DocumentLoader.pages_to_chunks(pages, chunk_size=50, overlap=5)
         assert len(chunks) > 0, "Document loader should create chunks"
         results["tests"].append({"name": "document_loader", "status": "pass"})
-        print("✓ Document Loader test passed\n")
+        print("[PASS] Document Loader test passed\n")
         
         # Test 3: Fake Embedder
         print("Test 3: Fake Embedder")
@@ -63,7 +63,7 @@ def run_ci_smoke_test():
         assert embedding.shape == (1, 384), "Embedding should be 384-dimensional"
         assert embedder.get_embedding_dimension() == 384, "Dimension should be 384"
         results["tests"].append({"name": "fake_embedder", "status": "pass"})
-        print("✓ Fake Embedder test passed\n")
+        print("[PASS] Fake Embedder test passed\n")
         
         # Test 4: Fake Vector Store
         print("Test 4: Fake Vector Store")
@@ -73,7 +73,7 @@ def run_ci_smoke_test():
         vector_store.add_chunks(chunks, embeddings)
         assert len(vector_store.chunks) == 5, "Vector store should have 5 chunks"
         results["tests"].append({"name": "fake_vector_store", "status": "pass"})
-        print("✓ Fake Vector Store test passed\n")
+        print("[PASS] Fake Vector Store test passed\n")
         
         # Test 5: Retriever
         print("Test 5: Retriever")
@@ -83,7 +83,7 @@ def run_ci_smoke_test():
         assert all("chunk_id" in r for r in retrieved), "Results should have chunk_id"
         assert all("similarity_score" in r for r in retrieved), "Results should have similarity_score"
         results["tests"].append({"name": "retriever", "status": "pass"})
-        print("✓ Retriever test passed\n")
+        print("[PASS] Retriever test passed\n")
         
         # Test 6: RAG Service
         print("Test 6: RAG Service")
@@ -95,7 +95,7 @@ def run_ci_smoke_test():
         assert "status" in response, "Response should have status"
         assert response["status"] == "retrieval_only", "Status should be retrieval_only"
         results["tests"].append({"name": "rag_service", "status": "pass"})
-        print("✓ RAG Service test passed\n")
+        print("[PASS] RAG Service test passed\n")
         
         # Test 7: Citation Format
         print("Test 7: Citation Format")
@@ -105,7 +105,7 @@ def run_ci_smoke_test():
         assert "page_number" in citation, "Citation should have page_number"
         assert "chunk_id" in citation, "Citation should have chunk_id"
         results["tests"].append({"name": "citation_format", "status": "pass"})
-        print("✓ Citation Format test passed\n")
+        print("[PASS] Citation Format test passed\n")
         
         # Test 8: Response Metadata
         print("Test 8: Response Metadata")
@@ -113,14 +113,14 @@ def run_ci_smoke_test():
         assert "latency_ms" in response["metadata"], "Metadata should have latency_ms"
         assert "num_chunks_retrieved" in response["metadata"], "Metadata should have num_chunks_retrieved"
         results["tests"].append({"name": "response_metadata", "status": "pass"})
-        print("✓ Response Metadata test passed\n")
+        print("[PASS] Response Metadata test passed\n")
         
         # Test 9: Document Filter
         print("Test 9: Document Filter")
         filtered = retriever.retrieve("test query", document_id="doc_001")
         assert len(filtered) > 0, "Should return results with document filter"
         results["tests"].append({"name": "document_filter", "status": "pass"})
-        print("✓ Document Filter test passed\n")
+        print("[PASS] Document Filter test passed\n")
         
         # Test 10: Top-K Limit
         print("Test 10: Top-K Limit")
@@ -128,7 +128,7 @@ def run_ci_smoke_test():
         retrieved_top2 = retriever_top2.retrieve("test query")
         assert len(retrieved_top2) <= 2, f"Should return at most 2 results, got {len(retrieved_top2)}"
         results["tests"].append({"name": "top_k_limit", "status": "pass"})
-        print("✓ Top-K Limit test passed\n")
+        print("[PASS] Top-K Limit test passed\n")
         
         # Finalize
         results["status"] = "success"

@@ -130,9 +130,13 @@ class FakeVectorStore:
         if len(self.embeddings) == 0:
             return []
         
-        # Calculate cosine similarity
-        from sklearn.metrics.pairwise import cosine_similarity
-        similarities = cosine_similarity([query_embedding], self.embeddings)[0]
+        # Calculate cosine similarity with NumPy so the CI fake stays small and
+        # does not pull the prediction module's scikit-learn dependency.
+        query_vector = np.asarray(query_embedding, dtype=float).reshape(-1)
+        embedding_matrix = np.asarray(self.embeddings, dtype=float)
+        denominator = np.linalg.norm(embedding_matrix, axis=1) * np.linalg.norm(query_vector)
+        denominator = np.where(denominator == 0, 1.0, denominator)
+        similarities = embedding_matrix @ query_vector / denominator
         
         # Apply filters
         filtered_indices = []
