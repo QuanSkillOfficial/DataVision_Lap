@@ -213,12 +213,15 @@ class VectorStore:
         """Add chunks to pgvector aligned with Phat's schema_v3 (Week 5)."""
         if not self.connection:
             raise RuntimeError("Not connected to pgvector")
-        
+
         import json
         try:
             cursor = self.connection.cursor()
             chunk_ids = []
-            
+
+            cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'document_chunks'")
+            available_columns = {row[0] for row in cursor.fetchall()}
+
             for chunk, embedding in zip(chunks, embeddings):
                 chunk_id = chunk["chunk_id"]
                 document_id = chunk.get("document_id_fk")
@@ -232,28 +235,23 @@ class VectorStore:
                     except (TypeError, ValueError):
                         document_id = None
                 chunk_text = chunk["chunk_text"]
-                # Use chunk_metadata instead of metadata (Phat's schema)
                 chunk_metadata = json.dumps(chunk.get("metadata", {}))
                 page_number = chunk.get("metadata", {}).get("page_number")
                 start_char = chunk.get("start_char")
                 end_char = chunk.get("end_char")
-                
-                # Convert embedding to pgvector format
+
                 embedding_array = np.asarray(embedding).reshape(-1)
                 embedding_str = str(embedding_array.tolist())
 
-                cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'document_chunks'")
-                available_columns = {row[0] for row in cursor.fetchall()}
                 insert_columns = ["chunk_id", "document_id", "chunk_text", "embedding"]
                 insert_values = [chunk_id, document_id, chunk_text, embedding_str]
-                insert_sql = "INSERT INTO document_chunks ({columns}) VALUES ({placeholders})"
 
                 if "page_number" in available_columns:
                     insert_columns.append("page_number")
                     insert_values.append(page_number)
-                if "chunk_index" in available_columns:               
-                    insert_columns.append("chunk_index")                   
-                    insert_values.append(chunk.get("chunk_index"))            
+                if "chunk_index" in available_columns:
+                    insert_columns.append("chunk_index")
+                    insert_values.append(chunk.get("chunk_index"))
                 if "chunk_metadata" in available_columns:
                     insert_columns.append("chunk_metadata")
                     insert_values.append(chunk_metadata)
@@ -264,16 +262,19 @@ class VectorStore:
                     insert_columns.append("end_char")
                     insert_values.append(end_char)
 
-                insert_sql = insert_sql.format(
+                insert_sql = "INSERT INTO document_chunks ({columns}) VALUES ({placeholders})".format(
                     columns=", ".join(insert_columns),
                     placeholders=", ".join(["%s"] * len(insert_columns)),
                 )
-                upsert_sql = insert_sql.replace("INSERT INTO document_chunks", "INSERT INTO document_chunks")
-                on_conflict_clause = " ON CONFLICT (chunk_id) DO UPDATE SET embedding = EXCLUDED.embedding"
+                on_conflict_clause = " ON CONFLICT (chunk_id) DO UPDATE SET embedding = EXCLUDED.embedding, chunk_text = EXCLUDED.chunk_text"
                 if "chunk_metadata" in available_columns:
                     on_conflict_clause += ", chunk_metadata = EXCLUDED.chunk_metadata"
+                if "page_number" in available_columns:
+                    on_conflict_clause += ", page_number = EXCLUDED.page_number"
+                if "chunk_index" in available_columns:
+                    on_conflict_clause += ", chunk_index = EXCLUDED.chunk_index"
                 cursor.execute(insert_sql + on_conflict_clause, insert_values)
-                
+
                 chunk_ids.append(chunk_id)
             
             self.connection.commit()
@@ -286,25 +287,38 @@ class VectorStore:
             raise
     
     def _add_chunks_in_memory(self, chunks: List[Dict], embeddings: np.ndarray) -> List[str]:
-        """Add chunks to in-memory store while preserving chunk IDs."""
+        """Add chunks to in-memory store while preserving chunk IDs, upserting duplicates."""
         chunk_ids = []
-        
+
         for chunk, embedding in zip(chunks, embeddings):
             chunk_id = chunk["chunk_id"]
-            
+            document_external_id = (
+                chunk.get("document_external_id")
+                or chunk.get("metadata", {}).get("document_external_id")
+            )
+            document_db_id = chunk.get("document_id_fk") or chunk.get("document_db_id")
+            file_name = (
+                chunk.get("file_name")
+                or chunk.get("metadata", {}).get("file_name")
+                or chunk.get("metadata", {}).get("source")
+            )
+
             self.in_memory_store[chunk_id] = {
                 "chunk_id": chunk["chunk_id"],
                 "document_id": chunk["document_id"],
+                "document_db_id": document_db_id,
+                "document_external_id": document_external_id,
+                "file_name": file_name,
                 "chunk_text": chunk["chunk_text"],
                 "embedding": embedding,
                 "metadata": chunk.get("metadata", {}),
                 "start_char": chunk.get("start_char"),
                 "end_char": chunk.get("end_char"),
-                "chunk_index": chunk.get("chunk_index", 0)
+                "chunk_index": chunk.get("chunk_index", 0),
             }
-            
+
             chunk_ids.append(chunk_id)
-        
+
         return chunk_ids
     
     def add_embeddings(
@@ -359,21 +373,20 @@ class VectorStore:
         """Search pgvector for similar embeddings (Week 3)."""
         if not self.connection:
             raise RuntimeError("Not connected to pgvector")
-        
+
         try:
             cursor = self.connection.cursor()
             embedding_str = str(query_embedding.tolist())
-            
-            # Build WHERE clause for filtering
+
             where_clause = "WHERE 1=1"
             params = [embedding_str]
-            
+
             if filter_metadata:
                 filter_clause, filter_params = self._build_pgvector_filter_clause(filter_metadata)
                 if filter_clause:
                     where_clause += f" AND {filter_clause}"
                     params.extend(filter_params)
-            
+
             query = f"""
                 SELECT
                     chunk_id,
@@ -387,28 +400,38 @@ class VectorStore:
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
             """
-            
+
             params.extend([embedding_str, top_k])
             cursor.execute(query, params)
-            
+
             results = []
             for row in cursor.fetchall():
                 import json
                 similarity = float(row[5])
                 normalized_similarity = max(0.0, min(1.0, (similarity + 1.0) / 2.0))
+                metadata = json.loads(row[4]) if isinstance(row[4], str) else (row[4] or {})
+                file_name = (
+                    metadata.get("file_name")
+                    or metadata.get("source")
+                )
+                document_external_id = metadata.get("document_external_id")
+                document_db_id = row[1]
                 results.append({
                     "chunk_id": row[0],
                     "document_id": row[1],
+                    "document_db_id": document_db_id,
+                    "document_external_id": document_external_id,
+                    "file_name": file_name,
                     "text": row[3],
                     "chunk_text": row[3],
                     "page_number": row[2],
-                    "metadata": json.loads(row[4]) if isinstance(row[4], str) else row[4],
+                    "metadata": metadata,
                     "score": normalized_similarity,
-                    "similarity_score": normalized_similarity
+                    "similarity_score": normalized_similarity,
                 })
-            
+
             return results
-            
+
         except Exception as e:
             print(f"Error searching pgvector: {e}")
             raise
@@ -421,12 +444,11 @@ class VectorStore:
     ) -> List[Dict]:
         """Search in-memory store with cosine similarity."""
         from sklearn.metrics.pairwise import cosine_similarity
-        
+
         results = []
         query_embedding = query_embedding.reshape(1, -1)
-        
+
         for chunk_id, chunk_data in self.in_memory_store.items():
-            # Apply metadata filtering
             if filter_metadata:
                 if "document_id" in filter_metadata:
                     if chunk_data.get("document_id") != filter_metadata["document_id"]:
@@ -437,24 +459,41 @@ class VectorStore:
                         continue
                 if not self._metadata_matches_filter(chunk_data, filter_metadata):
                     continue
-            
+
             embedding = chunk_data["embedding"].reshape(1, -1)
             similarity = cosine_similarity(query_embedding, embedding)[0][0]
             normalized_similarity = max(0.0, min(1.0, (float(similarity) + 1.0) / 2.0))
-            
-            page_number = chunk_data.get("metadata", {}).get("page_number")
+
+            metadata = chunk_data.get("metadata", {}) or {}
+            page_number = (
+                chunk_data.get("page_number")
+                or metadata.get("page_number")
+            )
+            file_name = (
+                chunk_data.get("file_name")
+                or metadata.get("file_name")
+                or metadata.get("source")
+            )
+            document_external_id = (
+                chunk_data.get("document_external_id")
+                or metadata.get("document_external_id")
+            )
+            document_db_id = chunk_data.get("document_db_id")
             results.append({
                 "chunk_id": chunk_data["chunk_id"],
                 "document_id": chunk_data["document_id"],
+                "document_db_id": document_db_id,
+                "document_external_id": document_external_id,
+                "file_name": file_name,
                 "id": chunk_id,
                 "text": chunk_data["chunk_text"],
                 "chunk_text": chunk_data["chunk_text"],
                 "page_number": page_number,
-                "metadata": chunk_data.get("metadata", {}),
+                "metadata": metadata,
                 "score": normalized_similarity,
-                "similarity_score": normalized_similarity
+                "similarity_score": normalized_similarity,
             })
-        
+
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:top_k]
     
