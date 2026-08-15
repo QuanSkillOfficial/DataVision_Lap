@@ -1,0 +1,3 @@
+emb shape: (2, 384)
+in_memory_store keys: ['c1']
+after delete keys: []
