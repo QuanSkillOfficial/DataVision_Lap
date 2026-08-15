@@ -6,13 +6,35 @@ Similar texts end up with similar vectors, which lets us find related content.
 """
 
 from typing import List, Union
+import os
+import hashlib
 import numpy as np
+
+
+def _deterministic_vector_for_text(text: str, dim: int = 384) -> np.ndarray:
+    """Create a deterministic embedding for a text using hashed RNG.
+
+    This is used for CI to make embeddings stable and fast without external
+    models. It is intentionally simple and reproducible.
+    """
+    if text is None:
+        text = ""
+    # Use SHA256 to derive a seed
+    digest = hashlib.sha256(text.encode("utf-8")).digest()
+    seed = int.from_bytes(digest[:8], "big") & 0xFFFFFFFF
+    rng = np.random.RandomState(seed)
+    vec = rng.randn(dim).astype(np.float32)
+    # Normalize to unit length for cosine similarity compatibility
+    norm = np.linalg.norm(vec)
+    if norm > 0:
+        vec = vec / norm
+    return vec
 
 
 class Embedder:
     """Manages embedding generation using sentence-transformers."""
     
-    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
+    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", mode: str = None):
         """
         Initialize the embedder with a model.
         
@@ -20,8 +42,12 @@ class Embedder:
             model_name: HuggingFace model identifier
         """
         self.model_name = model_name
-        self.model = self._load_model()
-        self.embedding_dimension = self._get_embedding_dimension()
+        self.mode = mode or os.getenv("EMBEDDING_MODE", "semantic")
+        self.model = None
+        if self.mode == "semantic":
+            self.model = self._load_model()
+        # Default embedding dimension; overwritten if semantic model provides one
+        self.embedding_dimension = 384 if self.mode == "deterministic" else self._get_embedding_dimension()
 
     def _get_embedding_dimension(self) -> int:
         """Support both older and newer sentence-transformers APIs."""
@@ -60,7 +86,12 @@ class Embedder:
         """
         if isinstance(texts, str):
             texts = [texts]
-        
+
+        if self.mode == "deterministic":
+            dim = self.get_embedding_dimension()
+            embs = np.stack([_deterministic_vector_for_text(t, dim) for t in texts], axis=0)
+            return embs
+
         embeddings = self.model.encode(texts, convert_to_numpy=True)
         return embeddings
     
@@ -74,6 +105,8 @@ class Embedder:
         Returns:
             NumPy array of embedding (shape: [embedding_dim])
         """
+        if self.mode == "deterministic":
+            return _deterministic_vector_for_text(query, dim=self.get_embedding_dimension())
         embedding = self.model.encode(query, convert_to_numpy=True)
         return embedding
     

@@ -109,6 +109,19 @@ def load_and_ingest(
         document_db_id = resolve_document_db_id(vector_store.connection, document_external_id)
         result["document_db_id"] = document_db_id
         print(f"Resolved to document_db_id: {document_db_id}")
+        # Capture existing rows/chunk ids for this document so we can report and remove stale chunks
+        try:
+            cursor = vector_store.connection.cursor()
+            cursor.execute("SELECT COUNT(*) FROM document_chunks WHERE document_id = %s", (document_db_id,))
+            rows_before = cursor.fetchone()[0]
+            cursor.execute("SELECT chunk_id FROM document_chunks WHERE document_id = %s", (document_db_id,))
+            existing_chunk_ids = {row[0] for row in cursor.fetchall()}
+            cursor.close()
+        except Exception:
+            rows_before = 0
+            existing_chunk_ids = set()
+        result["rows_before"] = rows_before
+        print(f"Existing rows for document {document_db_id}: {rows_before}")
         
         # Step 7: Prepare chunks with metadata
         print("Preparing chunks for insertion...")
@@ -162,6 +175,34 @@ def load_and_ingest(
             result["chunks_inserted"] = len(inserted_ids)
             result["insertion_time_ms"] = round(insertion_time, 2)
             print(f"Inserted {len(inserted_ids)} chunks in {insertion_time:.2f}ms")
+            # After insertion, compute rows after and delete any stale chunk_ids that no longer exist in the new set
+            try:
+                cursor = vector_store.connection.cursor()
+                cursor.execute("SELECT chunk_id FROM document_chunks WHERE document_id = %s", (document_db_id,))
+                all_after = {row[0] for row in cursor.fetchall()}
+                cursor.execute("SELECT COUNT(*) FROM document_chunks WHERE document_id = %s", (document_db_id,))
+                rows_after = cursor.fetchone()[0]
+                cursor.close()
+            except Exception:
+                all_after = set()
+                rows_after = result.get("chunks_inserted", 0)
+
+            new_chunk_ids = {c["chunk_id"] for c in chunks}
+            # Stale IDs are those that existed before but are not present in the new chunk set
+            stale_ids = list(existing_chunk_ids - new_chunk_ids)
+            deleted = 0
+            if stale_ids:
+                print(f"Deleting {len(stale_ids)} stale chunk(s) for document {document_db_id}...")
+                try:
+                    success = vector_store.delete(stale_ids)
+                    if success:
+                        deleted = len(stale_ids)
+                except Exception as e:
+                    print(f"Warning: could not delete stale chunks: {e}")
+
+            result["rows_after"] = rows_after
+            result["rows_deleted"] = deleted
+            result["stale_chunk_ids_deleted"] = stale_ids
         
         # Step 10: Finalize
         result["status"] = "success"

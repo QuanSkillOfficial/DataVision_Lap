@@ -499,10 +499,50 @@ class VectorStore:
     
     def delete(self, chunk_ids: List[str]) -> bool:
         """Remove chunks by their IDs."""
+        if self.use_pgvector and self.connection:
+            return self._delete_chunks_pgvector(chunk_ids)
+
         for chunk_id in chunk_ids:
             if chunk_id in self.in_memory_store:
                 del self.in_memory_store[chunk_id]
         return True
+
+    def _delete_chunks_pgvector(self, chunk_ids: List[str]) -> bool:
+        """Delete chunks from the pgvector-backed table by their chunk_ids."""
+        if not self.connection:
+            raise RuntimeError("Not connected to pgvector")
+
+        if not chunk_ids:
+            return True
+
+        try:
+            cursor = self.connection.cursor()
+            # Build placeholder list safely
+            placeholders = ", ".join(["%s"] * len(chunk_ids))
+            sql = f"DELETE FROM document_chunks WHERE chunk_id IN ({placeholders})"
+            cursor.execute(sql, chunk_ids)
+            self.connection.commit()
+            return True
+        except Exception as e:
+            print(f"Error deleting chunks from pgvector: {e}")
+            self.connection.rollback()
+            return False
+
+    def get_chunk_ids_for_document(self, document_db_id: int) -> List[str]:
+        """Return a list of chunk_ids currently stored for a given document id."""
+        if self.use_pgvector and self.connection:
+            try:
+                cursor = self.connection.cursor()
+                cursor.execute("SELECT chunk_id FROM document_chunks WHERE document_id = %s", (document_db_id,))
+                ids = [row[0] for row in cursor.fetchall()]
+                cursor.close()
+                return ids
+            except Exception as e:
+                print(f"Error fetching chunk ids for document {document_db_id}: {e}")
+                return []
+
+        # In-memory store fallback
+        return [c["chunk_id"] for c in self.in_memory_store.values() if c.get("document_id") == document_db_id]
     
     def clear(self) -> bool:
         """Wipe all embeddings from the store."""
