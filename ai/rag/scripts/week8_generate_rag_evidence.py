@@ -56,9 +56,15 @@ def _git(*args: str) -> str:
 def _source_hash() -> str:
     digest = hashlib.sha256()
     for relative_path in SOURCE_FILES:
+        blob = subprocess.run(
+            ["git", "show", f"HEAD:{relative_path}"],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+        ).stdout
         digest.update(relative_path.encode("utf-8"))
         digest.update(b"\0")
-        digest.update((PROJECT_ROOT / relative_path).read_bytes())
+        digest.update(blob)
         digest.update(b"\0")
     return digest.hexdigest()
 
