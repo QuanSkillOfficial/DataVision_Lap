@@ -30,7 +30,7 @@ SOURCE_FILES = (
 )
 DOCUMENT_ID = "doc_dataflow_technical_report"
 FILE_NAME = "DataFlow_Technical_Report.pdf"
-QUESTION = "What are the stages of the DataFlow pipeline?"
+QUESTION = "What is the DataFlow pipeline?"
 DOCUMENT_TEXT = (
     "The DataFlow pipeline consists of three main stages: ingestion, processing, and output. "
     "The ingestion stage collects and validates raw data from databases, APIs, and file systems. "
